@@ -9,10 +9,14 @@ A detailed description of anatel_nexus.
 
 __author__ = 'macambira@google.com (Tiago Macambira)'
 
+# a python readability reviewer would cry of horor of the code below...
 import sys
+from time import strftime, localtime, sleep
 from urllib import urlencode
 import urllib2
+
 from BeautifulSoup import BeautifulSoup
+import pynotify
 
 data_urlencoded='pTipo=&NumCertificado=&NumCertificado2=&CodHomologacao=&Data1=&Data2=&Periodo1=&Periodo2=&CodSolicitante=&nomeSolicitante=&ComparacaoSolicitante=i&CodFabricante=&nomeFabricante=samsung&ComparacaoFabricante=i&NumProcesso=&CodOCD=&CodServico=&CodTipo=ZM&IdtModalidadeAplicacao=&DescModelo=GT-I90&acao=h&chave=&'
 anatel_url = 'http://sistemas.anatel.gov.br/sgch/Consulta/Homologacao/tela.asp'
@@ -60,13 +64,17 @@ def ParsedTableToStr(plain_table):
         res.append(u"\n")
     return u"".join(res)
 
-
-
-if __name__ == '__main__':
-    fh=urllib2.urlopen(anatel_url,data_urlencoded,120)
+def GetPage():
+    fh = urllib2.urlopen(anatel_url,data_urlencoded,120)
     #fh=open('anatel.data','r')
-    page_data = fh.read()
-    page = BeautifulSoup(page_data.decode('latin1'))
+    page_data = fh.read().decode('latin1')
+    return page_data
+
+def ExtractHtmlTable(page_data):
+    """We assume page_data to be a unicode str or trivially convertible to
+    unicode.
+    """
+    page = BeautifulSoup(unicode(page_data))
     # Get to the cheese
     res_table_th = page.find('th', 'SubTituloCentro')
     res_table = GetParentByTag(res_table_th, 'table')
@@ -74,5 +82,39 @@ if __name__ == '__main__':
     #remove Extra crap
     pagination_td = res_table.find('td','SubTituloEsquerda')
     _ = GetParentByTag(pagination_td,'table').extract()
+    return res_table
+
+
+def NotifyLoop(timeout=300):
+    pynotify.init("nexus S watcher")
+    while True:
+        print strftime("%Y-%m-%d %H:%M:%S", localtime())
+        page_data = GetPage()
+        res_table = ExtractHtmlTable(page_data)
+        plain_table = ParseTable(res_table)
+        # remove header and galaxy S
+        left = [prod for prod in plain_table[1:] if prod[2] <> u'GT-I9000B' ]
+        if left:
+            (homologation, sitar, model, file_id, maker, kind, validity) = \
+                    left[0]
+            print left
+            n = pynotify.Notification("Nexus S","Nexus S is out!")
+            n.set_timeout(timeout)
+            n.show()
+        else:
+            print "\tnothig so far..."
+        sleep(timeout)
+
+
+def main():
+    page_data = GetPage()
+    res_table = ExtractHtmlTable(page_data)
     plain_table = ParseTable(res_table)
-    print ParsedTableToStr(plain_table)
+    # remove header and galaxy S
+    #print ParsedTableToStr(plain_table)
+    left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B' ]
+    if left: print left
+
+if __name__ == '__main__':
+    #main()
+    NotifyLoop()
