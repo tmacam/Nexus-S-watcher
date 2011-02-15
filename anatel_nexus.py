@@ -1,51 +1,97 @@
 #!/usr/bin/python
 #
-# Copyright 2011 Google Inc. All Rights Reserved.
+# Copyright 2011 Tiago Alves Macambira. All Rights Reserved.
 
-"""One-line documentation for anatel_nexus module.
+"""Watches for Nexus S approval by Brazil's FCC (Anatel).
 
-A detailed description of anatel_nexus.
+We periodically scrape Anatel's homologation search page for approved Samsung
+mobile phones from the GT-i90XXx series. We exclude the Samsung Galaxy S from
+the result and, if anything is left, we say that this is (supposedly) the Nesus
+S.
 """
 
-__author__ = 'macambira@google.com (Tiago Macambira)'
+__author__ = 'tmacam@burocrata.org (Tiago Alves Macambira)'
+__license__ = """Copyright (C) 2011 by Tiago Alves Macambira
 
-# a python readability reviewer would cry of horor of the code below...
-import sys
-from time import strftime, localtime, sleep
-from urllib import urlencode
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE."""
+
+
+import optparse
+import time
 import urllib2
 
 from BeautifulSoup import BeautifulSoup
 import pynotify
 
-data_urlencoded='pTipo=&NumCertificado=&NumCertificado2=&CodHomologacao=&Data1=&Data2=&Periodo1=&Periodo2=&CodSolicitante=&nomeSolicitante=&ComparacaoSolicitante=i&CodFabricante=&nomeFabricante=samsung&ComparacaoFabricante=i&NumProcesso=&CodOCD=&CodServico=&CodTipo=ZM&IdtModalidadeAplicacao=&DescModelo=GT-I90&acao=h&chave=&'
-anatel_url = 'http://sistemas.anatel.gov.br/sgch/Consulta/Homologacao/tela.asp'
 
-#data=dict([ keyval.split('=')  for keyval in x.split('&') if keyval])
+URL_ENCODED_DATA = ('pTipo=&'
+                    'NumCertificado=&'
+                    'NumCertificado2=&'
+                    'CodHomologacao=&'
+                    'Data1=&'
+                    'Data2=&'
+                    'Periodo1=&'
+                    'Periodo2=&'
+                    'CodSolicitante=&'
+                    'nomeSolicitante=&'
+                    'ComparacaoSolicitante=i&'
+                    'CodFabricante=&'
+                    'nomeFabricante=samsung&'
+                    'ComparacaoFabricante=i&'
+                    'NumProcesso=&'
+                    'CodOCD=&'
+                    'CodServico=&'
+                    'CodTipo=ZM&'
+                    'IdtModalidadeAplicacao=&'
+                    'DescModelo=GT-I90&'
+                    'acao=h&'
+                    'chave=&')
 
-#def main(argv):
+ANATEL_URL = 'http://sistemas.anatel.gov.br/sgch/Consulta/Homologacao/tela.asp'
+
 
 def StripScript(soup):
-    "remove all those script tags -- they will hurt us more than help us"
+    """Remove all those script tags -- they will hurt us more than help us."""
     while soup.script:
         _ = soup.script.extract()
     return soup
+
 
 def GetParentByTag(node, name):
     while node.name != name:
         node = node.parent
     return node
 
+
 def ParseTable(node):
+    """Convert the result HTML table into a list of lists representation."""
     rows = []
     for row in node.findAll('tr'):
-        columns=[]
+        columns = []
         for col in row.findAll(['th', 'td']):
-            text = u"".join([unicode(data).strip() 
-                            for data in col.findAll(recursive=True,text=True)])
+            text = u''.join([unicode(data).strip()
+                             for data in col.findAll(recursive=True,
+                                                     text=True)])
             columns.append(text)
         rows.append(columns)
     return rows
+
 
 def ParsedTableToHTML(table):
     res = """<html>
@@ -53,26 +99,38 @@ def ParsedTableToHTML(table):
         <title>Celulares Serie GT-9xxx da Samsung</title>
         <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
     </head>
-    <body>"""+ unicode(res_table).encode('utf-8') + """</body></html>"""
+    <body>"""+ unicode(table).encode('utf-8') + """</body></html>"""
+    return res
 
 
 def ParsedTableToStr(plain_table):
     res = []
     for line in plain_table:
         for col in line:
-            res.append(u"%30s|" % (col,))
-        res.append(u"\n")
-    return u"".join(res)
+            res.append(u'%30s|' % (col,))
+        res.append(u'\n')
+    return u''.join(res)
 
-def GetPage():
-    fh = urllib2.urlopen(anatel_url,data_urlencoded,120)
+
+def GetResultPage(filename):
+    if filename:
+        fh = open(filename, 'r')
+    else:
+        fh = urllib2.urlopen(ANATEL_URL, URL_ENCODED_DATA, 120)
     #fh=open('anatel.data','r')
     page_data = fh.read().decode('latin1')
     return page_data
 
-def ExtractHtmlTable(page_data):
-    """We assume page_data to be a unicode str or trivially convertible to
-    unicode.
+
+def ExtractResultTable(page_data):
+    """Extract the result table node from the result page.
+
+    Args:
+      page_data: raw result from the server.  We assume it to be a
+        unicode str or trivially convertible to unicode.
+
+    Returns:
+      the result table node.
     """
     page = BeautifulSoup(unicode(page_data))
     # Get to the cheese
@@ -80,41 +138,79 @@ def ExtractHtmlTable(page_data):
     res_table = GetParentByTag(res_table_th, 'table')
     StripScript(res_table)
     #remove Extra crap
-    pagination_td = res_table.find('td','SubTituloEsquerda')
-    _ = GetParentByTag(pagination_td,'table').extract()
+    pagination_td = res_table.find('td', 'SubTituloEsquerda')
+    _ = GetParentByTag(pagination_td, 'table').extract()
     return res_table
 
 
-def NotifyLoop(timeout=300):
-    pynotify.init("nexus S watcher")
+def NotifyLoop(filename, timeout):
+    """Periodically revisit Anatel's results and notify if Nexus S is found."""
+    pynotify.init('nexus S watcher')
     while True:
-        print strftime("%Y-%m-%d %H:%M:%S", localtime())
-        page_data = GetPage()
-        res_table = ExtractHtmlTable(page_data)
+        print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+        page_data = GetResultPage(filename)
+        if not page_data:
+            print '\tOops! Page returned empty!'
+            time.sleep(timeout)
+        res_table = ExtractResultTable(page_data)
         plain_table = ParseTable(res_table)
         # remove header and galaxy S
-        left = [prod for prod in plain_table[1:] if prod[2] <> u'GT-I9000B' ]
+        left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B']
         if left:
-            (homologation, sitar, model, file_id, maker, kind, validity) = \
-                    left[0]
+            #(homologation, sitar, model, file_id, maker, kind,
+            # validity) = left[0]
             print left
-            n = pynotify.Notification("Nexus S","Nexus S is out!")
+            n = pynotify.Notification('Nexus S', 'Nexus S is out!')
             n.set_timeout(timeout)
             n.show()
         else:
-            print "\tnothig so far..."
-        sleep(timeout)
+            print '\tnothing so far...'
+        time.sleep(timeout)
+
+
+def MakeOptionParser():
+    """Buils and returns the command line option parser."""
+    parser = optparse.OptionParser()
+    parser.add_option('-f', '--file', dest='filename', default=None,
+                      metavar='FILE',
+                      help=('Parse result from FILE instead of fetching '
+                            'from the network. If not provided (the default), '
+                            'it will fetch from the network'))
+    parser.add_option('-o', '--stdout', action='store_true',
+                      dest='stdout', default=False,
+                      help=('Run once and output result to stdout instead '
+                            'of using notifications. Not the default.'))
+    parser.add_option('-l', '--list', action='store_true',
+                      dest='list', default=False,
+                      help=('List all fones from the GT-I90xx series. '
+                            'Requires -o.'))
+    parser.add_option('-t', '--timeout', dest='timeout', default=300,
+                      metavar='SECS',
+                      help=('How frequently, in seconds, we pull new results '
+                            'from Anatel\'s servers.'))
+
+    return parser
+
+
+def VerifyAndPrintToStdout(filename, list_all_found):
+    page_data = GetResultPage(filename)
+    res_table = ExtractResultTable(page_data)
+    plain_table = ParseTable(res_table)
+    if list_all_found:
+        print ParsedTableToStr(plain_table)
+    # remove header and galaxy S
+    left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B']
+    if left: print left
 
 
 def main():
-    page_data = GetPage()
-    res_table = ExtractHtmlTable(page_data)
-    plain_table = ParseTable(res_table)
-    # remove header and galaxy S
-    #print ParsedTableToStr(plain_table)
-    left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B' ]
-    if left: print left
+    parser = MakeOptionParser()
+    opts, unused_args = parser.parse_args()
+    if opts.stdout:
+        VerifyAndPrintToStdout(opts.filename, opts.list)
+    else:
+        NotifyLoop(opts.filename, opts.timeout)
+
 
 if __name__ == '__main__':
-    #main()
-    NotifyLoop()
+    main()
