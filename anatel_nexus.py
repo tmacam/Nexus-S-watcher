@@ -65,6 +65,8 @@ URL_ENCODED_DATA = ('pTipo=&'
 
 ANATEL_URL = 'http://sistemas.anatel.gov.br/sgch/Consulta/Homologacao/tela.asp'
 
+KNOWN_GALAXY_MODELS = set([u'GT-I9000B', u'GT-I9003B'])
+
 
 def StripScript(soup):
     """Remove all those script tags -- they will hurt us more than help us."""
@@ -143,6 +145,12 @@ def ExtractResultTable(page_data):
     return res_table
 
 
+def FilterOutKnownModels(plain_table):
+    # Remove Header
+    models = plain_table[1:]
+    return [prod for prod in models if prod[2] not in KNOWN_GALAXY_MODELS]
+
+
 def NotifyLoop(filename, timeout):
     """Periodically revisit Anatel's results and notify if Nexus S is found."""
     pynotify.init('nexus S watcher')
@@ -155,7 +163,7 @@ def NotifyLoop(filename, timeout):
         res_table = ExtractResultTable(page_data)
         plain_table = ParseTable(res_table)
         # remove header and galaxy S
-        left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B']
+        left = FilterOutKnownModels(plain_table)
         if left:
             #(homologation, sitar, model, file_id, maker, kind,
             # validity) = left[0]
@@ -199,7 +207,7 @@ def VerifyAndPrintToStdout(filename, list_all_found):
     if list_all_found:
         print ParsedTableToStr(plain_table)
     # remove header and galaxy S
-    left = [prod for prod in plain_table[1:] if prod[2] != u'GT-I9000B']
+    left = FilterOutKnownModels(plain_table)
     if left: print left
 
 
