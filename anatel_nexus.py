@@ -67,6 +67,9 @@ ANATEL_URL = 'http://sistemas.anatel.gov.br/sgch/Consulta/Homologacao/tela.asp'
 
 KNOWN_GALAXY_MODELS = set([u'GT-I9000B', u'GT-I9003B'])
 
+class EmptyPageError(Exception):
+    pass
+
 
 def StripScript(soup):
     """Remove all those script tags -- they will hurt us more than help us."""
@@ -121,6 +124,8 @@ def GetResultPage(filename):
         fh = urllib2.urlopen(ANATEL_URL, URL_ENCODED_DATA, 120)
     #fh=open('anatel.data','r')
     page_data = fh.read().decode('latin1')
+    if not page_data:
+        raise EmptyPageError()
     return page_data
 
 
@@ -156,23 +161,25 @@ def NotifyLoop(filename, timeout):
     pynotify.init('nexus S watcher')
     while True:
         print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-        page_data = GetResultPage(filename)
-        if not page_data:
+        try:
+            page_data = GetResultPage(filename)
+            res_table = ExtractResultTable(page_data)
+            plain_table = ParseTable(res_table)
+            # remove header and galaxy S
+            left = FilterOutKnownModels(plain_table)
+            if left:
+                #(homologation, sitar, model, file_id, maker, kind,
+                # validity) = left[0]
+                print left
+                n = pynotify.Notification('Nexus S', 'Nexus S is out!')
+                n.set_timeout(timeout)
+                n.show()
+            else:
+                print '\tnothing so far...'
+        except EmptyPageError:
             print '\tOops! Page returned empty!'
-            time.sleep(timeout)
-        res_table = ExtractResultTable(page_data)
-        plain_table = ParseTable(res_table)
-        # remove header and galaxy S
-        left = FilterOutKnownModels(plain_table)
-        if left:
-            #(homologation, sitar, model, file_id, maker, kind,
-            # validity) = left[0]
-            print left
-            n = pynotify.Notification('Nexus S', 'Nexus S is out!')
-            n.set_timeout(timeout)
-            n.show()
-        else:
-            print '\tnothing so far...'
+        except urllib2.URLError as error:
+            print "\turllib2.URLError:", error
         time.sleep(timeout)
 
 
